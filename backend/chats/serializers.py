@@ -1,6 +1,9 @@
+from django.db import transaction
+from django.http import Http404
 from rest_framework import serializers
 
 from chats.models import Message, Chat
+from chats.tasks import send_message, receive_message
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -12,15 +15,21 @@ class MessageSerializer(serializers.ModelSerializer):
         read_only_fields = ('created', 'user', 'chat')
 
     def create(self, validated_data):
-        chat = Chat.objects.get(id=validated_data.pop('chat', None))
+        with transaction.atomic():
+            chat_id = validated_data.pop('chat', None)
+            sender = validated_data.get('sender', None)
 
-        message = super().create(validated_data)
+            try:
+                Chat.objects.get(id=chat_id, participants__in=[sender])
+            except Chat.DoesNotExist:
+                raise Http404()
 
-        chat.messages.add(message)
+            message = super().create(validated_data)
 
-        chat.save()
+            send_message.delay(message.id, chat_id)
+            receive_message.apply_async(args=[message.id], countdown=10)
 
-        return message
+            return message
 
 
 class ChatSerializer(serializers.ModelSerializer):

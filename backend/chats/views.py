@@ -1,7 +1,8 @@
+from django.http import Http404
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 
-from chats.models import Chat, Message
+from chats.models import Chat
 from chats.serializers import ChatSerializer, MessageSerializer
 
 
@@ -20,7 +21,13 @@ class MessageView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         chat_id = self.kwargs.get('pk', None)
-        return Chat.objects.get(id=chat_id, participants__in=[self.request.user.id]).messages.all()
+
+        try:
+            messages = Chat.objects.get(id=chat_id, participants__in=[self.request.user.id]).messages.all()
+        except Chat.DoesNotExist:
+            raise Http404()
+
+        return messages
 
     def perform_create(self, serializer):
         chat_id = self.kwargs.get('pk', None)
